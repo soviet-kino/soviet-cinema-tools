@@ -181,7 +181,7 @@ class ReferenceSource(StrictModel):
     url: str | None = None
 
     @model_validator(mode="after")
-    def _one_of(self) -> "ReferenceSource":
+    def _one_of(self) -> ReferenceSource:
         if self.essay is None and self.url is None:
             raise ValueError("source: укажите essay или url")
         return self

@@ -20,7 +20,6 @@
 
 from __future__ import annotations
 
-import sys
 from collections.abc import Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -133,21 +132,27 @@ def _format_validation_error(exc: ValidationError) -> str:
     return "; ".join(parts)
 
 
+def _check_missing_refs(
+    path: Path,
+    field_name: str,
+    ids: list[str],
+    bucket: dict[str, Any],
+    issues: list[Issue],
+) -> None:
+    for ref in ids:
+        if ref not in bucket:
+            issues.append(Issue(path, f"{field_name}: '{ref}' не найден"))
+
+
 def _check_film_refs(loaded: Loaded, vocab: Vocab, root: Path) -> list[Issue]:
     issues: list[Issue] = []
     for slug, film in loaded.films.items():
         path = root / "films" / f"{slug}.yaml"
-
-        def miss(field_name: str, ids: list[str], bucket: dict[str, Any]) -> None:
-            for ref in ids:
-                if ref not in bucket:
-                    issues.append(Issue(path, f"{field_name}: '{ref}' не найден"))
-
-        miss("director", film.director, loaded.people)
-        miss("screenwriter", film.screenwriter, loaded.people)
-        miss("cinematographer", film.cinematographer, loaded.people)
-        miss("composer", film.composer, loaded.people)
-        miss("studio", film.studio, loaded.studios)
+        _check_missing_refs(path, "director", film.director, loaded.people, issues)
+        _check_missing_refs(path, "screenwriter", film.screenwriter, loaded.people, issues)
+        _check_missing_refs(path, "cinematographer", film.cinematographer, loaded.people, issues)
+        _check_missing_refs(path, "composer", film.composer, loaded.people, issues)
+        _check_missing_refs(path, "studio", film.studio, loaded.studios, issues)
         for entry in film.cast:
             if entry.person not in loaded.people:
                 issues.append(Issue(path, f"cast.person: '{entry.person}' не найден"))

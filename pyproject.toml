@@ -31,6 +31,7 @@ dev = [
 
 [project.scripts]
 sbc-validate = "validators.cli:app"
+sbc-validate-essays = "validators.essays_cli:app"
 sbc-import-films = "importers.wikidata_films:app"
 
 [tool.setuptools.packages.find]
@@ -42,6 +43,16 @@ target-version = "py311"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "UP", "RUF"]
+# RUF001/002/003 ругаются на кириллицу в идентификаторах, строках и комментариях
+# («ambiguous unicode»). В проекте на русском это бессмысленно — отключаем.
+ignore = ["RUF001", "RUF002", "RUF003"]
+
+[tool.ruff.lint.per-file-ignores]
+# Typer-CLI требует вызовов typer.Argument()/typer.Option() в качестве
+# дефолтов параметров — это его идиома. Глушим B008 точечно.
+"validators/cli.py" = ["B008"]
+"validators/essays_cli.py" = ["B008"]
+"importers/wikidata_films.py" = ["B008"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

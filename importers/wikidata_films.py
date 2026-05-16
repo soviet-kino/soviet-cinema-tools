@@ -81,7 +81,10 @@ WHERE {{
   OPTIONAL {{ ?film wdt:P345 ?imdb }}
   OPTIONAL {{ ?film wdt:P2047 ?runtime }}
   OPTIONAL {{ ?film rdfs:label ?filmLabel . FILTER(LANG(?filmLabel) = "ru") }}
-  OPTIONAL {{ ?film rdfs:label ?origLabel . FILTER(LANG(?origLabel) IN ("ru","pl","cs","de","sr","hr","bg","hu","ro","sq","mn")) }}
+  OPTIONAL {{
+    ?film rdfs:label ?origLabel .
+    FILTER(LANG(?origLabel) IN ("ru","pl","cs","de","sr","hr","bg","hu","ro","sq","mn"))
+  }}
 }}
 GROUP BY ?film ?filmLabel ?origLabel ?year ?imdb ?runtime
 ORDER BY ?year ?filmLabel
@@ -137,7 +140,9 @@ class ImportReport:
         }
 
 
-def _sparql_query(country_qid: str, year_from: int, year_to: int, limit: int) -> list[dict[str, Any]]:
+def _sparql_query(
+    country_qid: str, year_from: int, year_to: int, limit: int
+) -> list[dict[str, Any]]:
     sparql = SPARQLWrapper(WIKIDATA_ENDPOINT, agent=USER_AGENT)
     sparql.setReturnFormat(JSON)
     sparql.setQuery(
