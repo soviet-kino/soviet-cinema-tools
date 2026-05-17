@@ -31,7 +31,7 @@ from pydantic import ValidationError
 from rich.console import Console
 from rich.table import Table
 
-from .schemas import ENTITY_MODELS, Film, Motif, Person, Reference, Studio
+from .schemas import ENTITY_MODELS, Film, Motif, Person, Reference, Studio, Topic
 
 app = typer.Typer(add_completion=False, help="Валидатор данных soviet-cinema-data.")
 console = Console()
@@ -50,6 +50,7 @@ class Loaded:
     studios: dict[str, Studio] = field(default_factory=dict)
     motifs: dict[str, Motif] = field(default_factory=dict)
     references: dict[str, Reference] = field(default_factory=dict)
+    topics: dict[str, Topic] = field(default_factory=dict)
 
 
 @dataclass
@@ -153,6 +154,7 @@ def _check_film_refs(loaded: Loaded, vocab: Vocab, root: Path) -> list[Issue]:
         _check_missing_refs(path, "cinematographer", film.cinematographer, loaded.people, issues)
         _check_missing_refs(path, "composer", film.composer, loaded.people, issues)
         _check_missing_refs(path, "studio", film.studio, loaded.studios, issues)
+        _check_missing_refs(path, "topics", film.topics, loaded.topics, issues)
         for entry in film.cast:
             if entry.person not in loaded.people:
                 issues.append(Issue(path, f"cast.person: '{entry.person}' не найден"))
@@ -214,6 +216,14 @@ def _check_motif_refs(loaded: Loaded, vocab: Vocab, root: Path) -> list[Issue]:
     return issues
 
 
+def _check_topic_refs(loaded: Loaded, root: Path) -> list[Issue]:
+    issues: list[Issue] = []
+    for slug, topic in loaded.topics.items():
+        path = root / "topics" / f"{slug}.yaml"
+        _check_missing_refs(path, "related_motifs", topic.related_motifs, loaded.motifs, issues)
+    return issues
+
+
 def _check_reference_refs(loaded: Loaded, vocab: Vocab, root: Path) -> list[Issue]:
     issues: list[Issue] = []
     for slug, ref in loaded.references.items():
@@ -255,6 +265,7 @@ def main(
     issues += _check_person_refs(loaded, vocab if strict_vocab else Vocab(), data_root)
     issues += _check_studio_refs(loaded, vocab if strict_vocab else Vocab(), data_root)
     issues += _check_motif_refs(loaded, vocab if strict_vocab else Vocab(), data_root)
+    issues += _check_topic_refs(loaded, data_root)
     issues += _check_reference_refs(loaded, vocab if strict_vocab else Vocab(), data_root)
 
     _print_summary(loaded, issues, data_root)
@@ -266,7 +277,7 @@ def _print_summary(loaded: Loaded, issues: list[Issue], root: Path) -> None:
     table = Table(title="Сводка")
     table.add_column("Сущность")
     table.add_column("Загружено", justify="right")
-    for kind in ("films", "people", "studios", "motifs", "references"):
+    for kind in ("films", "people", "studios", "motifs", "topics", "references"):
         table.add_row(kind, str(len(getattr(loaded, kind))))
     console.print(table)
 
