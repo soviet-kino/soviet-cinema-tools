@@ -146,6 +146,21 @@ class Film(StrictModel):
 # ---------- topic ----------
 
 
+class TopicFilter(StrictModel):
+    """Декларативный фильтр для динамического подбора фильмов в тему.
+
+    Все поля опциональны и комбинируются как AND. Если у фильма есть
+    `topics: [<id>]`, он попадает в тему и без фильтра (явная привязка).
+    """
+
+    year_from: int | None = Field(default=None, ge=1900, le=2030)
+    year_to: int | None = Field(default=None, ge=1900, le=2030)
+    director: Slug | None = None
+    screenwriter: Slug | None = None
+    book_author: Slug | None = None  # автор первоисточника (через references)
+    country: str | None = None
+
+
 class Topic(StrictModel):
     """Тематический раздел: содержательная категория для подборки и разбора.
 
@@ -153,6 +168,14 @@ class Topic(StrictModel):
     исследовательская тема, по которой группируется кураторская подборка
     фильмов и эссе. Пример: «хрононавтика» — фильмы о путешествиях во
     времени, петлях времени и философии времени.
+
+    Подборка фильмов формируется двумя способами:
+      1. Явная привязка: у фильма указан этот topic в `topics`.
+      2. Декларативный `filter` — фильмы автоматически вычисляются по
+         режиссёру / сценаристу / автору книги / периоду.
+
+    Оба способа объединяются (OR) — фильм попадает в тему, если он
+    привязан явно ИЛИ удовлетворяет фильтру.
     """
 
     id: Slug
@@ -161,6 +184,7 @@ class Topic(StrictModel):
     description_ru: str
     long_description_ru: str | None = None
     related_motifs: list[Slug] = Field(default_factory=list)
+    filter: TopicFilter | None = None
     sources: list[str] = Field(default_factory=list)
     schema_version: int = CURRENT_SCHEMA_VERSION
 
