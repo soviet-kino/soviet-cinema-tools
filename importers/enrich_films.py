@@ -220,6 +220,11 @@ def main(
     limit_films: int | None = typer.Option(
         None, "--limit-films", help="Обрабатывать только первые N (для отладки)"
     ),
+    slugs: str | None = typer.Option(
+        None,
+        "--slugs",
+        help="Список slug-ов фильмов через запятую (например 'zerkalo-1974,stalker-1979').",
+    ),
     dry_run: bool = typer.Option(False, "--dry-run", help="Не писать на диск"),
 ) -> None:
     out = out.resolve()
@@ -243,6 +248,12 @@ def main(
     qid_to_slug.pop(None, None)
 
     film_qids = list(qid_to_slug.keys())
+    if slugs:
+        wanted = {s.strip() for s in slugs.split(",") if s.strip()}
+        film_qids = [q for q, s in qid_to_slug.items() if s in wanted]
+        missing = wanted - {qid_to_slug[q] for q in film_qids}
+        if missing:
+            console.print(f"[yellow]не найдены или без QID: {sorted(missing)}[/yellow]")
     if limit_films is not None:
         film_qids = film_qids[:limit_films]
 
