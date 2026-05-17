@@ -135,7 +135,32 @@ class Film(StrictModel):
     poster_tmdb_path: str | None = None
     # Постер на Wikimedia Commons (Wikidata P18) — имя файла без префикса.
     poster_commons: str | None = None
+    # Тематические разделы для исследования (хрононавтика, эзопов язык,
+    # киноокраина и т.д.). Slug-и из topics/.
+    topics: list[Slug] = Field(default_factory=list)
     external_ids: ExternalIds | None = None
+    sources: list[str] = Field(default_factory=list)
+    schema_version: int = CURRENT_SCHEMA_VERSION
+
+
+# ---------- topic ----------
+
+
+class Topic(StrictModel):
+    """Тематический раздел: содержательная категория для подборки и разбора.
+
+    В отличие от мотива (повторяющийся образ/приём) топик — это
+    исследовательская тема, по которой группируется кураторская подборка
+    фильмов и эссе. Пример: «хрононавтика» — фильмы о путешествиях во
+    времени, петлях времени и философии времени.
+    """
+
+    id: Slug
+    name_ru: str
+    name_original: str | None = None
+    description_ru: str
+    long_description_ru: str | None = None
+    related_motifs: list[Slug] = Field(default_factory=list)
     sources: list[str] = Field(default_factory=list)
     schema_version: int = CURRENT_SCHEMA_VERSION
 
@@ -230,4 +255,5 @@ ENTITY_MODELS: dict[str, type[StrictModel]] = {
     "studios": Studio,
     "motifs": Motif,
     "references": Reference,
+    "topics": Topic,
 }
