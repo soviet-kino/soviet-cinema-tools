@@ -63,31 +63,28 @@ COUNTRY_TO_QID = {
 
 
 # Шаблон запроса. country_qid и year_from/year_to подставляются.
+#
+# Минималистичный: только то, что нужно для генерации каркаса YAML
+# (title, year, wikidata QID, imdb, runtime). Лейбл получаем через
+# канонический wikibase:label с fallback ru → en.
+#
+# Режиссёров, студий и оригинального названия здесь нет намеренно: они
+# тянут за собой OPTIONAL/GROUP_CONCAT, которые WDQS в режиме outage
+# охотно убивает по rate-limit. Их докатим отдельным проходом, когда
+# QID-ы фильмов уже импортированы и можно делать узконаправленные
+# запросы по списку id.
 SPARQL_TEMPLATE = """
-SELECT DISTINCT ?film ?filmLabel ?origLabel ?year ?imdb ?runtime
-                (GROUP_CONCAT(DISTINCT ?directorLabel; separator="|") AS ?directors)
-                (GROUP_CONCAT(DISTINCT ?studioLabel; separator="|")   AS ?studios)
-WHERE {{
+SELECT ?film ?filmLabel ?year ?imdb ?runtime WHERE {{
   ?film wdt:P31/wdt:P279* wd:Q11424 .
   ?film wdt:P495 wd:{country_qid} .
   ?film wdt:P577 ?date .
   FILTER(YEAR(?date) >= {year_from} && YEAR(?date) <= {year_to})
   BIND(YEAR(?date) AS ?year)
-
-  OPTIONAL {{ ?film wdt:P57 ?director . ?director rdfs:label ?directorLabel .
-             FILTER(LANG(?directorLabel) = "ru") }}
-  OPTIONAL {{ ?film wdt:P272 ?studio . ?studio rdfs:label ?studioLabel .
-             FILTER(LANG(?studioLabel) = "ru") }}
   OPTIONAL {{ ?film wdt:P345 ?imdb }}
   OPTIONAL {{ ?film wdt:P2047 ?runtime }}
-  OPTIONAL {{ ?film rdfs:label ?filmLabel . FILTER(LANG(?filmLabel) = "ru") }}
-  OPTIONAL {{
-    ?film rdfs:label ?origLabel .
-    FILTER(LANG(?origLabel) IN ("ru","pl","cs","de","sr","hr","bg","hu","ro","sq","mn"))
-  }}
+  SERVICE wikibase:label {{ bd:serviceParam wikibase:language "ru,en". }}
 }}
-GROUP BY ?film ?filmLabel ?origLabel ?year ?imdb ?runtime
-ORDER BY ?year ?filmLabel
+ORDER BY ?year
 LIMIT {limit}
 """
 
@@ -164,25 +161,34 @@ def _row_to_yaml(row: dict[str, Any], country: str) -> tuple[str, dict[str, Any]
         return val["value"] if val else None
 
     title_ru = get("filmLabel") or ""
-    title_orig = get("origLabel") or title_ru
+    # Оригинальное название в первом проходе равно русскому. Для нерусскоязычных
+    # республик это нужно будет поправить вручную (или докатить отдельным
+    # запросом, дёргая mul/lang-specific labels по QID).
+    title_orig = title_ru
     year = int(get("year") or 0)
     qid = (get("film") or "").rsplit("/", 1)[-1]
     imdb = get("imdb")
     runtime = get("runtime")
-    slug = make_slug(title_ru or title_orig or qid, year)
+    slug = make_slug(title_ru or qid, year)
 
     payload: dict[str, Any] = {
         "id": slug,
         "title_ru": title_ru or None,
-        "title_original": title_orig or title_ru or None,
+        "title_original": title_orig or None,
         "year": year,
         "country": [country],
     }
     if runtime:
         try:
-            payload["runtime_min"] = int(float(runtime))
+            r = int(float(runtime))
         except ValueError:
-            pass
+            r = None
+        # Wikidata изредка хранит длительность в секундах или с ошибочно
+        # увеличенным значением (3192 «минут» у «Бани» 1962). Отбрасываем
+        # всё, что не попадает в человеческий диапазон. Точное значение
+        # позже проставит редактор по титрам.
+        if r is not None and 1 <= r < 1000:
+            payload["runtime_min"] = r
     ext: dict[str, Any] = {}
     if qid.startswith("Q"):
         ext["wikidata"] = qid
@@ -238,15 +244,9 @@ def main(
                     encoding="utf-8",
                 )
                 report.written.append(slug)
-            # собираем имена для последующих заглушек
-            for raw_name in (row.get("directors", {}).get("value", "") or "").split("|"):
-                raw_name = raw_name.strip()
-                if raw_name:
-                    report.missing_people.add(raw_name)
-            for raw_name in (row.get("studios", {}).get("value", "") or "").split("|"):
-                raw_name = raw_name.strip()
-                if raw_name:
-                    report.missing_studios.add(raw_name)
+            # На первом проходе мы не тянем директоров/студии (см. SPARQL_TEMPLATE),
+            # поэтому missing_people / missing_studios остаются пустыми. Их
+            # заполнит отдельный шаг обогащения по QID.
             progress.advance(task)
             if sleep:
                 time.sleep(sleep)
