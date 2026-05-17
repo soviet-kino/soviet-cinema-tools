@@ -23,9 +23,7 @@ CLAUDE.md: «Импортируй фильмы СССР за 1970-е» — за�
 
 from __future__ import annotations
 
-import re
 import time
-import unicodedata
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -35,6 +33,8 @@ import yaml
 from rich.console import Console
 from rich.progress import Progress
 from SPARQLWrapper import JSON, SPARQLWrapper
+
+from .util import make_film_slug as make_slug
 
 app = typer.Typer(add_completion=False)
 console = Console()
@@ -87,36 +87,6 @@ SELECT ?film ?filmLabel ?year ?imdb ?runtime WHERE {{
 ORDER BY ?year
 LIMIT {limit}
 """
-
-
-_RU_TRANSLIT = {
-    "а": "a", "б": "b", "в": "v", "г": "g", "д": "d", "е": "e", "ё": "yo",
-    "ж": "zh", "з": "z", "и": "i", "й": "y", "к": "k", "л": "l", "м": "m",
-    "н": "n", "о": "o", "п": "p", "р": "r", "с": "s", "т": "t", "у": "u",
-    "ф": "f", "х": "kh", "ц": "ts", "ч": "ch", "ш": "sh", "щ": "shch",
-    "ъ": "", "ы": "y", "ь": "", "э": "e", "ю": "yu", "я": "ya",
-}
-
-
-def _translit(text: str) -> str:
-    out: list[str] = []
-    for ch in text.lower():
-        if ch in _RU_TRANSLIT:
-            out.append(_RU_TRANSLIT[ch])
-        elif ch.isalnum() or ch in {" ", "-"}:
-            out.append(ch)
-    s = "".join(out)
-    # снять диакритику из латиницы
-    s = "".join(c for c in unicodedata.normalize("NFKD", s) if not unicodedata.combining(c))
-    s = re.sub(r"[^a-z0-9]+", "-", s)
-    return s.strip("-")
-
-
-def make_slug(title: str, year: int) -> str:
-    base = _translit(title)
-    if not base:
-        base = "untitled"
-    return f"{base}-{year}"
 
 
 @dataclass

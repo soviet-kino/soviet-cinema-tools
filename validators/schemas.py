@@ -38,6 +38,9 @@ class ExternalIds(StrictModel):
     imdb: str | None = Field(default=None, pattern=r"^tt\d+$")
     tmdb: int | str | None = None
     kinopoisk: int | str | None = None
+    # YouTube video ID (Wikidata P1651). Конкретное видео фильма —
+    # например, с официального канала «Мосфильма».
+    youtube: str | None = Field(default=None, pattern=r"^[A-Za-z0-9_-]{6,32}$")
 
 
 # ---------- studio ----------
@@ -51,6 +54,9 @@ class Studio(StrictModel):
     country: str  # country code из vocabularies/countries.yaml
     founded: int | None = Field(default=None, ge=1890, le=2000)
     dissolved: int | None = Field(default=None, ge=1890, le=2100)
+    # Имя файла на Wikimedia Commons (Wikidata P18). Используется как
+    # `https://commons.wikimedia.org/wiki/Special:FilePath/<filename>?width=…`.
+    image_commons: str | None = None
     external_ids: ExternalIds | None = None
     sources: list[str] = Field(default_factory=list)
     schema_version: int = CURRENT_SCHEMA_VERSION
@@ -70,6 +76,8 @@ class Person(StrictModel):
     death: str | None = None
     nationality: list[str] = Field(default_factory=list)
     roles: list[str] = Field(default_factory=list)
+    # Имя файла на Wikimedia Commons (Wikidata P18).
+    image_commons: str | None = None
     external_ids: ExternalIds | None = None
     sources: list[str] = Field(default_factory=list)
     schema_version: int = CURRENT_SCHEMA_VERSION
@@ -125,6 +133,8 @@ class Film(StrictModel):
     production_status: ProductionStatus | None = None
     censorship_status: str | None = None
     poster_tmdb_path: str | None = None
+    # Постер на Wikimedia Commons (Wikidata P18) — имя файла без префикса.
+    poster_commons: str | None = None
     external_ids: ExternalIds | None = None
     sources: list[str] = Field(default_factory=list)
     schema_version: int = CURRENT_SCHEMA_VERSION

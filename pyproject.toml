@@ -33,6 +33,8 @@ dev = [
 sbc-validate = "validators.cli:app"
 sbc-validate-essays = "validators.essays_cli:app"
 sbc-import-films = "importers.wikidata_films:app"
+sbc-enrich-films = "importers.enrich_films:app"
+sbc-enrich-people = "importers.enrich_people:app"
 
 [tool.setuptools.packages.find]
 include = ["validators*", "importers*"]
@@ -53,6 +55,8 @@ ignore = ["RUF001", "RUF002", "RUF003"]
 "validators/cli.py" = ["B008"]
 "validators/essays_cli.py" = ["B008"]
 "importers/wikidata_films.py" = ["B008"]
+"importers/enrich_films.py" = ["B008"]
+"importers/enrich_people.py" = ["B008"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
