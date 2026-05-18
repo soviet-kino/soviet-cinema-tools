@@ -69,6 +69,7 @@ SELECT ?film ?prop ?value ?valueLabel WHERE {{
   {{ ?film wdt:P344  ?value . BIND("cinematographer" AS ?prop) }} UNION
   {{ ?film wdt:P86   ?value . BIND("composer"        AS ?prop) }} UNION
   {{ ?film wdt:P272  ?value . BIND("studio"          AS ?prop) }} UNION
+  {{ ?film wdt:P161  ?value . BIND("cast"            AS ?prop) }} UNION
   {{ ?film wdt:P18   ?value . BIND("image"           AS ?prop) }} UNION
   {{ ?film wdt:P1651 ?value . BIND("youtube"         AS ?prop) }} UNION
   {{ ?film wdt:P345  ?value . BIND("imdb"            AS ?prop) }}
@@ -321,6 +322,37 @@ def main(
                         )
                         if person_slug and _add_unique(film, yaml_field, person_slug, report):
                             changed = True
+
+                # --- cast (актёры) ---
+                # P161 без P453 (роли в кино) — приходит только список людей.
+                # role в нашем YAML остаётся пустым, его заполняет редактор.
+                existing_cast_slugs = {
+                    entry.get("person")
+                    for entry in (film.get("cast") or [])
+                    if isinstance(entry, dict)
+                }
+                for value_uri, label in props.get("cast", []):
+                    person_qid = parse_qid(value_uri or "")
+                    if not person_qid:
+                        continue
+                    person_slug = _resolve_or_create_person(
+                        person_qid,
+                        label,
+                        people_idx,
+                        people,
+                        taken_people,
+                        "actor",
+                        people_dir,
+                        report,
+                    )
+                    if not person_slug:
+                        continue
+                    if person_slug in existing_cast_slugs:
+                        continue
+                    film.setdefault("cast", []).append({"person": person_slug})
+                    existing_cast_slugs.add(person_slug)
+                    report.bump("cast")
+                    changed = True
 
                 # --- студии ---
                 for value_uri, label in props.get("studio", []):
