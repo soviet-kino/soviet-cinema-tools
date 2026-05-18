@@ -100,11 +100,14 @@ def _value(row: dict[str, Any], key: str) -> str | None:
 
 
 def _to_partial_date(iso: str) -> str | None:
-    """Wikidata отдаёт даты как 1932-04-04T00:00:00Z. Нам нужен YYYY-MM-DD."""
-    if not iso:
-        return None
-    # бывают даты до н.э. с минусом — пропускаем (не наш период).
-    if iso.startswith("-"):
+    """Wikidata отдаёт даты как 1932-04-04T00:00:00Z. Нам нужен YYYY-MM-DD.
+
+    Wikidata также может вернуть «unknown value» как URL (например,
+    `http://www.wikidata.org/.well-known/genid/...`). Поэтому строго
+    требуем, чтобы строка начиналась с цифры. Даты до н.э. (с минусом)
+    тоже отбрасываем — не наш период.
+    """
+    if not iso or not iso[:1].isdigit():
         return None
     return iso[:10] if len(iso) >= 10 else None
 
