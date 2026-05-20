@@ -157,6 +157,7 @@ class TopicFilter(StrictModel):
     year_to: int | None = Field(default=None, ge=1900, le=2030)
     director: Slug | None = None
     screenwriter: Slug | None = None
+    composer: Slug | None = None  # ключевой композитор фильма
     book_author: Slug | None = None  # автор первоисточника (через references)
     country: str | None = None
 
@@ -273,6 +274,27 @@ class Essay(StrictModel):
     schema_version: int = CURRENT_SCHEMA_VERSION
 
 
+# ---------- collection (курированный список людей) ----------
+
+
+class Collection(StrictModel):
+    """Курированная подборка — людей, фильмов или того и другого.
+
+    В отличие от Topic, который про фильмы (опционально + filter),
+    Collection — это «выставка» с явным редакторским списком: например
+    «Выдающиеся актёры советского кино» = list of people slugs.
+    """
+
+    id: Slug
+    name_ru: str
+    description_ru: str
+    long_description_ru: str | None = None
+    people: list[Slug] = Field(default_factory=list)
+    films: list[Slug] = Field(default_factory=list)
+    sources: list[str] = Field(default_factory=list)
+    schema_version: int = CURRENT_SCHEMA_VERSION
+
+
 ENTITY_MODELS: dict[str, type[StrictModel]] = {
     "films": Film,
     "people": Person,
@@ -280,4 +302,5 @@ ENTITY_MODELS: dict[str, type[StrictModel]] = {
     "motifs": Motif,
     "references": Reference,
     "topics": Topic,
+    "collections": Collection,
 }
