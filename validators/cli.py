@@ -31,7 +31,16 @@ from pydantic import ValidationError
 from rich.console import Console
 from rich.table import Table
 
-from .schemas import ENTITY_MODELS, Film, Motif, Person, Reference, Studio, Topic
+from .schemas import (
+    ENTITY_MODELS,
+    Collection,
+    Film,
+    Motif,
+    Person,
+    Reference,
+    Studio,
+    Topic,
+)
 
 app = typer.Typer(add_completion=False, help="Валидатор данных soviet-cinema-data.")
 console = Console()
@@ -51,6 +60,7 @@ class Loaded:
     motifs: dict[str, Motif] = field(default_factory=dict)
     references: dict[str, Reference] = field(default_factory=dict)
     topics: dict[str, Topic] = field(default_factory=dict)
+    collections: dict[str, Collection] = field(default_factory=dict)
 
 
 @dataclass
