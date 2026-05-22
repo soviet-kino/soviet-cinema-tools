@@ -10,7 +10,8 @@
      - P86 composer
      - P272 production company (studio)
      - P136 genre (для будущего, в этом проходе игнорируется)
-     - P18 image (постер)
+     - P3383 film poster (приоритетный источник постера)
+     - P18 image (запасной, иногда содержит постер, иногда кадр)
      - P1651 YouTube video id
      - P345 IMDb id
   4. Для каждого упомянутого QID-человека и QID-студии:
@@ -71,6 +72,7 @@ SELECT ?film ?prop ?value ?valueLabel WHERE {{
   {{ ?film wdt:P272  ?value . BIND("studio"          AS ?prop) }} UNION
   {{ ?film wdt:P161  ?value . BIND("cast"            AS ?prop) }} UNION
   {{ ?film wdt:P18   ?value . BIND("image"           AS ?prop) }} UNION
+  {{ ?film wdt:P3383 ?value . BIND("poster"          AS ?prop) }} UNION
   {{ ?film wdt:P1651 ?value . BIND("youtube"         AS ?prop) }} UNION
   {{ ?film wdt:P345  ?value . BIND("imdb"            AS ?prop) }}
   SERVICE wikibase:label {{ bd:serviceParam wikibase:language "ru,en". }}
@@ -373,13 +375,19 @@ def main(
                         changed = True
 
                 # --- скаляры ---
+                # poster_commons: предпочитаем P3383 (специально «постер»),
+                # запасной вариант — P18 (общая картинка фильма, иногда
+                # тоже постер, иногда кадр).
                 if not film.get("poster_commons"):
-                    for value_uri, _ in props.get("image", []):
-                        fname = parse_commons_filename(value_uri or "")
-                        if fname:
-                            film["poster_commons"] = fname
-                            report.bump("poster_commons")
-                            changed = True
+                    for prop_name in ("poster", "image"):
+                        for value_uri, _ in props.get(prop_name, []):
+                            fname = parse_commons_filename(value_uri or "")
+                            if fname:
+                                film["poster_commons"] = fname
+                                report.bump(f"poster_commons_via_{prop_name}")
+                                changed = True
+                                break
+                        if film.get("poster_commons"):
                             break
 
                 ext = film.setdefault("external_ids", {}) if "external_ids" in film else {}
