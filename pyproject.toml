@@ -35,6 +35,7 @@ sbc-validate-essays = "validators.essays_cli:app"
 sbc-import-films = "importers.wikidata_films:app"
 sbc-enrich-films = "importers.enrich_films:app"
 sbc-enrich-people = "importers.enrich_people:app"
+sbc-enrich-tmdb = "importers.enrich_tmdb:app"
 
 [tool.setuptools.packages.find]
 include = ["validators*", "importers*"]
@@ -57,6 +58,7 @@ ignore = ["RUF001", "RUF002", "RUF003"]
 "importers/wikidata_films.py" = ["B008"]
 "importers/enrich_films.py" = ["B008"]
 "importers/enrich_people.py" = ["B008"]
+"importers/enrich_tmdb.py" = ["B008"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
