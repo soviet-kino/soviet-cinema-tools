@@ -133,7 +133,9 @@ class Film(StrictModel):
     production_status: ProductionStatus | None = None
     censorship_status: str | None = None
     poster_tmdb_path: str | None = None
-    # Постер на Wikimedia Commons (Wikidata P18) — имя файла без префикса.
+    # Фоновый кадр от TMDB (для hero-секций на странице фильма).
+    backdrop_tmdb_path: str | None = None
+    # Постер на Wikimedia Commons (Wikidata P3383/P18) — имя файла.
     poster_commons: str | None = None
     # Тематические разделы для исследования (хрононавтика, эзопов язык,
     # киноокраина и т.д.). Slug-и из topics/.
