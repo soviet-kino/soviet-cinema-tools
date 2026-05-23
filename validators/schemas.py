@@ -110,6 +110,29 @@ ColorMode = Literal["color", "bw", "color_and_bw"]
 ProductionStatus = Literal["released", "shelved", "unreleased", "unfinished", "lost"]
 
 
+class SovietRelease(StrictModel):
+    """Информация о советском прокате зарубежного фильма.
+
+    Зарубежные фильмы импортировались Госкино и выходили в советский
+    прокат с переводом, дубляжом, иногда сокращённой цензором. Эта
+    информация — отдельная сущность от исходной даты выхода (release_date).
+    """
+
+    year: int = Field(ge=1922, le=1991, description="Год выхода в советском прокате")
+    title_ru: str | None = Field(
+        default=None,
+        description="Название, под которым фильм шёл в СССР (может отличаться)",
+    )
+    dubbed: bool | None = Field(
+        default=None,
+        description="Был ли полный дубляж (true) или субтитры/закадровый (false)",
+    )
+    notes: str | None = Field(
+        default=None,
+        description="Сокращения цензуры, особенности проката и т.п.",
+    )
+
+
 class Film(StrictModel):
     id: Slug
     title_ru: str
@@ -140,6 +163,10 @@ class Film(StrictModel):
     # Тематические разделы для исследования (хрононавтика, эзопов язык,
     # киноокраина и т.д.). Slug-и из topics/.
     topics: list[Slug] = Field(default_factory=list)
+    # Советский прокат — заполняется для зарубежных фильмов, выходивших
+    # в СССР. Для собственно советских фильмов поле игнорируется (год
+    # совпадает с year / release_date).
+    soviet_release: SovietRelease | None = None
     external_ids: ExternalIds | None = None
     sources: list[str] = Field(default_factory=list)
     schema_version: int = CURRENT_SCHEMA_VERSION
