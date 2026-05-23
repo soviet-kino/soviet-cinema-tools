@@ -76,7 +76,8 @@ COUNTRY_TO_QID = {
 SPARQL_TEMPLATE = """
 SELECT ?film ?filmLabel ?year ?imdb ?runtime WHERE {{
   ?film wdt:P31/wdt:P279* wd:Q11424 .
-  ?film wdt:P495 wd:{country_qid} .
+  VALUES ?country {{ {country_qids} }}
+  ?film wdt:P495 ?country .
   ?film wdt:P577 ?date .
   FILTER(YEAR(?date) >= {year_from} && YEAR(?date) <= {year_to})
   BIND(YEAR(?date) AS ?year)
@@ -87,6 +88,21 @@ SELECT ?film ?filmLabel ?year ?imdb ?runtime WHERE {{
 ORDER BY ?year
 LIMIT {limit}
 """
+
+# Wikidata часто маркирует фильмы соцэры современным государством,
+# а не социалистическим (Польша=Q36 вместо ПНР=Q210725). Здесь —
+# альтернативные QID для импорта; SPARQL берёт UNION.
+ALTERNATIVE_COUNTRY_QIDS = {
+    "PL": ["Q210725", "Q36"],         # ПНР + Польша
+    "CS": ["Q33946", "Q12569"],       # ЧССР + Чехословакия общая
+    "DD": ["Q16957"],                  # ГДР — Wikidata разделяет с ФРГ
+    "YU": ["Q83286", "Q36704"],       # СФРЮ + Югославия общая
+    "BG": ["Q220798", "Q219"],         # НРБ + Болгария
+    "HU": ["Q47135", "Q28"],           # ВНР + Венгрия
+    "RO": ["Q170468", "Q218"],         # СРР + Румыния
+    "AL": ["Q204269", "Q222"],         # НСРА + Албания
+    "MN": ["Q188268", "Q711"],         # МНР + Монголия
+}
 
 
 @dataclass
@@ -108,7 +124,7 @@ class ImportReport:
 
 
 def _sparql_query(
-    country_qid: str,
+    country_qids: list[str],
     year_from: int,
     year_to: int,
     limit: int,
@@ -117,14 +133,18 @@ def _sparql_query(
 ) -> list[dict[str, Any]]:
     """SPARQL-запрос с retry на 429.
 
+    country_qids — список QID-ов (объединение через VALUES в SPARQL).
+    Для PL это будет [Q210725, Q36] — и ПНР, и Польша в целом.
+
     Wikidata периодически вводит «aggressive rate-limit 1 req/min» —
     тогда повторяем с задержкой ~70 секунд, чтобы влезть в окно.
     """
+    qids_formatted = " ".join(f"wd:{q}" for q in country_qids)
     sparql = SPARQLWrapper(WIKIDATA_ENDPOINT, agent=USER_AGENT)
     sparql.setReturnFormat(JSON)
     sparql.setQuery(
         SPARQL_TEMPLATE.format(
-            country_qid=country_qid,
+            country_qids=qids_formatted,
             year_from=year_from,
             year_to=year_to,
             limit=limit,
@@ -220,7 +240,8 @@ def main(
     reports_dir.mkdir(parents=True, exist_ok=True)
 
     console.print(f"[bold]Wikidata SPARQL[/bold]: {country} {year_from}–{year_to}, limit={limit}")
-    rows = _sparql_query(COUNTRY_TO_QID[country], year_from, year_to, limit)
+    qids = ALTERNATIVE_COUNTRY_QIDS.get(country, [COUNTRY_TO_QID[country]])
+    rows = _sparql_query(qids, year_from, year_to, limit)
     report = ImportReport(sparql_rows=len(rows))
     console.print(f"получено строк: {len(rows)}")
 
