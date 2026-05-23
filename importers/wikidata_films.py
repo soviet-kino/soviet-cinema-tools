@@ -108,8 +108,18 @@ class ImportReport:
 
 
 def _sparql_query(
-    country_qid: str, year_from: int, year_to: int, limit: int
+    country_qid: str,
+    year_from: int,
+    year_to: int,
+    limit: int,
+    max_retries: int = 10,
+    sleep_on_429: int = 70,
 ) -> list[dict[str, Any]]:
+    """SPARQL-запрос с retry на 429.
+
+    Wikidata периодически вводит «aggressive rate-limit 1 req/min» —
+    тогда повторяем с задержкой ~70 секунд, чтобы влезть в окно.
+    """
     sparql = SPARQLWrapper(WIKIDATA_ENDPOINT, agent=USER_AGENT)
     sparql.setReturnFormat(JSON)
     sparql.setQuery(
@@ -120,9 +130,24 @@ def _sparql_query(
             limit=limit,
         )
     )
-    data = sparql.query().convert()
-    bindings = data.get("results", {}).get("bindings", []) if isinstance(data, dict) else []
-    return bindings
+    import time as _time
+
+    for attempt in range(max_retries):
+        try:
+            data = sparql.query().convert()
+            return (
+                data.get("results", {}).get("bindings", [])
+                if isinstance(data, dict)
+                else []
+            )
+        except Exception as exc:
+            msg = str(exc)
+            if "429" in msg or "rate-limit" in msg.lower():
+                print(f"429, ждём {sleep_on_429}с (попытка {attempt + 1}/{max_retries})")
+                _time.sleep(sleep_on_429)
+                continue
+            raise
+    raise RuntimeError(f"Wikidata не отдала ответ за {max_retries} попыток")
 
 
 def _row_to_yaml(row: dict[str, Any], country: str) -> tuple[str, dict[str, Any]]:
