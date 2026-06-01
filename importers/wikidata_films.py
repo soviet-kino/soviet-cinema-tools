@@ -170,6 +170,36 @@ def _sparql_query(
     raise RuntimeError(f"Wikidata не отдала ответ за {max_retries} попыток")
 
 
+def _dedupe_rows_by_film(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Одна строка на фильм: у фильма бывает несколько дат P577 (повторные
+    прокаты, релизы в разных странах), и каждая приходит отдельной строкой.
+
+    Берём минимальный год — он ближе всего к году производства / первой
+    премьеры. Без этого на каждый год создавался бы свой YAML с тем же QID
+    (исторический баг, вычищенный migrations/dedupe_film_qids.py).
+    """
+    best: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        film_uri = (row.get("film") or {}).get("value")
+        if not film_uri:
+            continue
+        try:
+            year = int((row.get("year") or {}).get("value") or 0)
+        except ValueError:
+            year = 0
+        prev = best.get(film_uri)
+        if prev is None:
+            best[film_uri] = row
+            continue
+        try:
+            prev_year = int((prev.get("year") or {}).get("value") or 0)
+        except ValueError:
+            prev_year = 0
+        if year and (not prev_year or year < prev_year):
+            best[film_uri] = row
+    return list(best.values())
+
+
 def _row_to_yaml(row: dict[str, Any], country: str) -> tuple[str, dict[str, Any]]:
     def get(key: str) -> str | None:
         val = row.get(key)
@@ -241,9 +271,12 @@ def main(
 
     console.print(f"[bold]Wikidata SPARQL[/bold]: {country} {year_from}–{year_to}, limit={limit}")
     qids = ALTERNATIVE_COUNTRY_QIDS.get(country, [COUNTRY_TO_QID[country]])
-    rows = _sparql_query(qids, year_from, year_to, limit)
-    report = ImportReport(sparql_rows=len(rows))
-    console.print(f"получено строк: {len(rows)}")
+    raw_rows = _sparql_query(qids, year_from, year_to, limit)
+    rows = _dedupe_rows_by_film(raw_rows)
+    report = ImportReport(sparql_rows=len(raw_rows))
+    console.print(
+        f"получено строк: {len(raw_rows)} → уникальных фильмов: {len(rows)}"
+    )
 
     with Progress() as progress:
         task = progress.add_task("Запись YAML", total=len(rows))
