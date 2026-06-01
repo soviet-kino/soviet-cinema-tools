@@ -34,7 +34,7 @@ def richness(d: dict) -> int:
 def load(p: Path):
     try:
         return yaml.safe_load(p.read_text(encoding="utf-8")) or {}
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         print(f"  ! ошибка чтения {p.name}: {e}")
         return {}
 
@@ -56,7 +56,7 @@ def main(root: Path) -> None:
     groups_with_rich = 0
     multi_rich = 0  # группы где >1 обогащённой (нужен merge)
     diff_title = 0  # группы где title_ru/slug-база различаются
-    for q, fs in dupes.items():
+    for _q, fs in dupes.items():
         rich = [(s, d) for s, d in fs if richness(d) > 0]
         if rich:
             groups_with_rich += 1
@@ -73,7 +73,7 @@ def main(root: Path) -> None:
     # canonical = max richness, tie → min year.
     all_dupe_slugs: set[str] = set()
     losers: set[str] = set()
-    for q, fs in dupes.items():
+    for _q, fs in dupes.items():
         def year_of(d):
             return d.get("year") or 9999
         winner = max(fs, key=lambda sd: (richness(sd[1]), -year_of(sd[1])))

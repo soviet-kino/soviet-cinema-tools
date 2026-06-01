@@ -31,7 +31,7 @@ from pathlib import Path
 import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from importers.util import make_film_slug  # noqa: E402
+from importers.util import make_film_slug
 
 RICH_FIELDS = [
     "director", "screenwriter", "cinematographer", "composer", "studio",
@@ -74,7 +74,7 @@ def merge_group(files: list[tuple[str, dict]]) -> tuple[str, dict]:
     # порядок долива: сначала файл с min-год (верные year/title/sources),
     # затем остальные по убыванию обогащённости.
     def sort_key(sd):
-        s, d = sd
+        _s, d = sd
         is_min = isinstance(d.get("year"), int) and d["year"] == canonical_year
         return (0 if is_min else 1, -richness(d))
 
@@ -117,7 +117,10 @@ def update_refs(root: Path, slug_map: dict[str, str], apply: bool) -> int:
             if touched:
                 changed += 1
                 if apply:
-                    p.write_text(yaml.safe_dump(d, allow_unicode=True, sort_keys=False), encoding="utf-8")
+                    p.write_text(
+                        yaml.safe_dump(d, allow_unicode=True, sort_keys=False),
+                        encoding="utf-8",
+                    )
     coll_dir = root / "collections"
     if coll_dir.exists():
         for p in coll_dir.glob("*.yaml"):
@@ -137,7 +140,10 @@ def update_refs(root: Path, slug_map: dict[str, str], apply: bool) -> int:
             if touched:
                 changed += 1
                 if apply:
-                    p.write_text(yaml.safe_dump(d, allow_unicode=True, sort_keys=False), encoding="utf-8")
+                    p.write_text(
+                        yaml.safe_dump(d, allow_unicode=True, sort_keys=False),
+                        encoding="utf-8",
+                    )
     return changed
 
 
@@ -155,7 +161,7 @@ def main(root: Path, apply: bool) -> None:
     slug_map: dict[str, str] = {}     # old_slug -> canonical_slug
     to_delete: set[str] = set()
     to_write: dict[str, dict] = {}    # canonical_slug -> payload
-    for q, fs in dupes.items():
+    for _q, fs in dupes.items():
         canonical_slug, merged = merge_group(fs)
         to_write[canonical_slug] = merged
         for s, _d in fs:
