@@ -33,10 +33,10 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+import requests
 import typer
 from rich.console import Console
 from rich.progress import Progress
-from SPARQLWrapper import JSON, SPARQLWrapper
 
 from .util import (
     dump_yaml,
@@ -110,24 +110,47 @@ class EnrichReport:
 def _sparql_batch(
     qids: list[str], max_retries: int = 8, sleep_on_429: int = 65
 ) -> list[dict[str, Any]]:
-    """Один SPARQL-запрос на чанк, с retry на 429."""
+    """Один SPARQL-запрос на чанк, с retry на 429.
+
+    Прямой requests.get вместо SPARQLWrapper: последний стабильно ловит
+    429 на WDQS там, где идентичный запрос через requests/curl с тем же
+    User-Agent проходит за пару секунд.
+    """
     formatted = " ".join(f"wd:{q}" for q in qids)
     query = SPARQL_BATCH.format(qids=formatted)
-    sparql = SPARQLWrapper(WIKIDATA_ENDPOINT, agent=USER_AGENT)
-    sparql.setReturnFormat(JSON)
-    sparql.setQuery(query)
+    headers = {
+        "Accept": "application/sparql-results+json",
+        "User-Agent": USER_AGENT,
+    }
+    last_status = None
     for attempt in range(max_retries):
         try:
-            res = sparql.query().convert()
-            return res.get("results", {}).get("bindings", []) if isinstance(res, dict) else []
-        except Exception as exc:
-            msg = str(exc)
-            if "429" in msg or "rate-limit" in msg.lower():
-                console.print(f"[yellow]429, ждём {sleep_on_429}с (попытка {attempt + 1})[/yellow]")
-                time.sleep(sleep_on_429)
-                continue
-            raise
-    raise RuntimeError(f"Wikidata не отдала ответ за {max_retries} попыток")
+            resp = requests.get(
+                WIKIDATA_ENDPOINT,
+                params={"query": query},
+                headers=headers,
+                timeout=120,
+            )
+        except requests.RequestException as exc:
+            console.print(
+                f"[yellow]сеть: {exc}; ждём {sleep_on_429}с "
+                f"(попытка {attempt + 1})[/yellow]"
+            )
+            time.sleep(sleep_on_429)
+            continue
+        last_status = resp.status_code
+        if resp.status_code == 200:
+            return resp.json().get("results", {}).get("bindings", [])
+        if resp.status_code == 429:
+            wait = int(resp.headers.get("Retry-After", sleep_on_429))
+            console.print(f"[yellow]429, ждём {wait}с (попытка {attempt + 1})[/yellow]")
+            time.sleep(wait)
+            continue
+        console.print(f"[yellow]HTTP {resp.status_code}; ждём 15с (попытка {attempt + 1})[/yellow]")
+        time.sleep(15)
+    raise RuntimeError(
+        f"Wikidata не отдала ответ за {max_retries} попыток (последний статус {last_status})"
+    )
 
 
 def _value(row: dict[str, Any], key: str) -> str | None:
