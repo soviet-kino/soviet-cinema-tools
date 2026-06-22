@@ -28,12 +28,13 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+import requests
 import typer
 import yaml
 from rich.console import Console
 from rich.progress import Progress
-from SPARQLWrapper import JSON, SPARQLWrapper
 
+from .util import index_by_qid, load_yaml_files
 from .util import make_film_slug as make_slug
 
 app = typer.Typer(add_completion=False)
@@ -75,7 +76,7 @@ COUNTRY_TO_QID = {
 # запросы по списку id.
 SPARQL_TEMPLATE = """
 SELECT ?film ?filmLabel ?year ?imdb ?runtime WHERE {{
-  ?film wdt:P31/wdt:P279* wd:Q11424 .
+  ?film wdt:P31/wdt:P279* wd:{instance_qid} .
   VALUES ?country {{ {country_qids} }}
   ?film wdt:P495 ?country .
   ?film wdt:P577 ?date .
@@ -109,6 +110,7 @@ ALTERNATIVE_COUNTRY_QIDS = {
 class ImportReport:
     written: list[str] = field(default_factory=list)
     skipped_existing: list[str] = field(default_factory=list)
+    tagged_existing: list[str] = field(default_factory=list)
     missing_people: set[str] = field(default_factory=set)
     missing_studios: set[str] = field(default_factory=set)
     sparql_rows: int = 0
@@ -118,6 +120,7 @@ class ImportReport:
             "sparql_rows": self.sparql_rows,
             "written": self.written,
             "skipped_existing": self.skipped_existing,
+            "tagged_existing": self.tagged_existing,
             "missing_people": sorted(self.missing_people),
             "missing_studios": sorted(self.missing_studios),
         }
@@ -128,6 +131,7 @@ def _sparql_query(
     year_from: int,
     year_to: int,
     limit: int,
+    instance_qid: str = "Q11424",
     max_retries: int = 10,
     sleep_on_429: int = 70,
 ) -> list[dict[str, Any]]:
@@ -136,38 +140,56 @@ def _sparql_query(
     country_qids — список QID-ов (объединение через VALUES в SPARQL).
     Для PL это будет [Q210725, Q36] — и ПНР, и Польша в целом.
 
+    instance_qid — тип сущности (P31/P279*). По умолчанию Q11424 (film);
+    для мультфильмов передаём Q202866 (animated film) — он подтянет и
+    подклассы (animated short film, animated feature film и т.д.).
+
     Wikidata периодически вводит «aggressive rate-limit 1 req/min» —
     тогда повторяем с задержкой ~70 секунд, чтобы влезть в окно.
     """
     qids_formatted = " ".join(f"wd:{q}" for q in country_qids)
-    sparql = SPARQLWrapper(WIKIDATA_ENDPOINT, agent=USER_AGENT)
-    sparql.setReturnFormat(JSON)
-    sparql.setQuery(
-        SPARQL_TEMPLATE.format(
-            country_qids=qids_formatted,
-            year_from=year_from,
-            year_to=year_to,
-            limit=limit,
-        )
+    query = SPARQL_TEMPLATE.format(
+        country_qids=qids_formatted,
+        instance_qid=instance_qid,
+        year_from=year_from,
+        year_to=year_to,
+        limit=limit,
     )
-    import time as _time
-
+    # Прямой GET через requests, а не SPARQLWrapper: последний по неясной
+    # причине стабильно ловит 429 там, где идентичный запрос через curl/
+    # requests с тем же User-Agent проходит за ~2с. Воспроизводим curl.
+    headers = {
+        "Accept": "application/sparql-results+json",
+        "User-Agent": USER_AGENT,
+    }
+    last_status = None
     for attempt in range(max_retries):
         try:
-            data = sparql.query().convert()
-            return (
-                data.get("results", {}).get("bindings", [])
-                if isinstance(data, dict)
-                else []
+            resp = requests.get(
+                WIKIDATA_ENDPOINT,
+                params={"query": query},
+                headers=headers,
+                timeout=120,
             )
-        except Exception as exc:
-            msg = str(exc)
-            if "429" in msg or "rate-limit" in msg.lower():
-                print(f"429, ждём {sleep_on_429}с (попытка {attempt + 1}/{max_retries})")
-                _time.sleep(sleep_on_429)
-                continue
-            raise
-    raise RuntimeError(f"Wikidata не отдала ответ за {max_retries} попыток")
+        except requests.RequestException as exc:
+            print(f"сеть: {exc}; ждём {sleep_on_429}с (попытка {attempt + 1}/{max_retries})")
+            time.sleep(sleep_on_429)
+            continue
+        last_status = resp.status_code
+        if resp.status_code == 200:
+            data = resp.json()
+            return data.get("results", {}).get("bindings", [])
+        if resp.status_code == 429:
+            wait = int(resp.headers.get("Retry-After", sleep_on_429))
+            print(f"429, ждём {wait}с (попытка {attempt + 1}/{max_retries})")
+            time.sleep(wait)
+            continue
+        # 500/503/timeout на стороне WDQS — короткий бэк-офф и повтор.
+        print(f"HTTP {resp.status_code}; ждём 15с (попытка {attempt + 1}/{max_retries})")
+        time.sleep(15)
+    raise RuntimeError(
+        f"Wikidata не отдала ответ за {max_retries} попыток (последний статус {last_status})"
+    )
 
 
 def _dedupe_rows_by_film(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -200,7 +222,12 @@ def _dedupe_rows_by_film(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return list(best.values())
 
 
-def _row_to_yaml(row: dict[str, Any], country: str) -> tuple[str, dict[str, Any]]:
+def _row_to_yaml(
+    row: dict[str, Any],
+    country: str,
+    genre: list[str] | None = None,
+    topics: list[str] | None = None,
+) -> tuple[str, dict[str, Any]]:
     def get(key: str) -> str | None:
         val = row.get(key)
         return val["value"] if val else None
@@ -222,6 +249,8 @@ def _row_to_yaml(row: dict[str, Any], country: str) -> tuple[str, dict[str, Any]
         "title_original": title_orig or None,
         "year": year,
         "country": [country],
+        "genre": list(genre) if genre else None,
+        "topics": list(topics) if topics else None,
     }
     if runtime:
         try:
@@ -257,11 +286,22 @@ def main(
     limit: int = typer.Option(500, "--limit", help="Максимум записей за один запрос"),
     sleep: float = typer.Option(0.0, "--sleep", help="Пауза между записями, сек"),
     force: bool = typer.Option(False, "--force", help="Перезаписывать существующие YAML"),
+    animation: bool = typer.Option(
+        False,
+        "--animation",
+        help="Импортировать мультфильмы (instance Q202866) с genre=animation "
+        "и topics=[animation]",
+    ),
     dry_run: bool = typer.Option(False, "--dry-run", help="Не писать на диск"),
 ) -> None:
     if country not in COUNTRY_TO_QID:
         console.print(f"[red]не знаю Q-ID для country={country}[/red]")
         raise typer.Exit(code=2)
+
+    instance_qid = "Q202866" if animation else "Q11424"
+    extra_genre = ["animation"] if animation else None
+    extra_topics = ["animation"] if animation else None
+    kind = "мультфильмы" if animation else "фильмы"
 
     out = out.resolve()
     films_dir = out / "films"
@@ -269,22 +309,72 @@ def main(
     films_dir.mkdir(parents=True, exist_ok=True)
     reports_dir.mkdir(parents=True, exist_ok=True)
 
-    console.print(f"[bold]Wikidata SPARQL[/bold]: {country} {year_from}–{year_to}, limit={limit}")
+    console.print(
+        f"[bold]Wikidata SPARQL[/bold]: {kind} {country} {year_from}–{year_to}, limit={limit}"
+    )
     qids = ALTERNATIVE_COUNTRY_QIDS.get(country, [COUNTRY_TO_QID[country]])
-    raw_rows = _sparql_query(qids, year_from, year_to, limit)
+    raw_rows = _sparql_query(qids, year_from, year_to, limit, instance_qid=instance_qid)
     rows = _dedupe_rows_by_film(raw_rows)
     report = ImportReport(sparql_rows=len(raw_rows))
     console.print(
         f"получено строк: {len(raw_rows)} → уникальных фильмов: {len(rows)}"
     )
 
+    # Индекс существующих фильмов по QID — нужен в режиме --animation:
+    # обычный импорт по Q11424 уже захватывал мультфильмы (они подкласс
+    # film), но без genre/topics. Поэтому для уже присутствующих по QID
+    # фильмов не пишем заглушку поверх (затёрли бы cast/постеры), а
+    # дописываем "animation" в genre и topics.
+    existing_qid_to_slug: dict[str, str] = {}
+    if animation:
+        existing_qid_to_slug = index_by_qid(load_yaml_files(films_dir))
+
+    def _patch_tags(path: Path) -> bool:
+        """Добавляет animation в genre/topics существующего YAML.
+        Возвращает True, если файл изменён."""
+        data = yaml.safe_load(path.read_text(encoding="utf-8"))
+        changed = False
+        for fld in ("genre", "topics"):
+            vals = list(data.get(fld) or [])
+            if "animation" not in vals:
+                vals.append("animation")
+                data[fld] = vals
+                changed = True
+        if changed and not dry_run:
+            path.write_text(
+                yaml.safe_dump(data, allow_unicode=True, sort_keys=False),
+                encoding="utf-8",
+            )
+        return changed
+
     with Progress() as progress:
         task = progress.add_task("Запись YAML", total=len(rows))
         for row in rows:
-            slug, payload = _row_to_yaml(row, country)
+            slug, payload = _row_to_yaml(
+                row, country, genre=extra_genre, topics=extra_topics
+            )
+            qid = (payload.get("external_ids") or {}).get("wikidata")
+            # Режим мультфильмов: если фильм уже есть по QID — патчим теги,
+            # не трогая остальные поля.
+            if animation and qid and qid in existing_qid_to_slug:
+                existing_path = films_dir / f"{existing_qid_to_slug[qid]}.yaml"
+                if existing_path.exists():
+                    if _patch_tags(existing_path):
+                        report.tagged_existing.append(existing_qid_to_slug[qid])
+                    else:
+                        report.skipped_existing.append(existing_qid_to_slug[qid])
+                    progress.advance(task)
+                    if sleep:
+                        time.sleep(sleep)
+                    continue
             target = films_dir / f"{slug}.yaml"
             if target.exists() and not force:
-                report.skipped_existing.append(slug)
+                # Файл с таким slug уже есть, но QID не совпал/не индексирован —
+                # в animation-режиме всё равно попробуем дописать теги.
+                if animation and _patch_tags(target):
+                    report.tagged_existing.append(slug)
+                else:
+                    report.skipped_existing.append(slug)
             elif dry_run:
                 report.written.append(slug)
             else:
@@ -305,7 +395,12 @@ def main(
         yaml.safe_dump(report.to_dict(), allow_unicode=True, sort_keys=False),
         encoding="utf-8",
     )
-    console.print(f"[green]готово.[/green] отчёт: {report_path.relative_to(out)}")
+    console.print(
+        f"[green]готово.[/green] создано: {len(report.written)}, "
+        f"протегировано: {len(report.tagged_existing)}, "
+        f"пропущено: {len(report.skipped_existing)}. "
+        f"отчёт: {report_path.relative_to(out)}"
+    )
 
 
 if __name__ == "__main__":
